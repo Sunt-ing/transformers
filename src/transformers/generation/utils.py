@@ -1929,6 +1929,18 @@ class GenerationMixin(ContinuousMixin):
                     f"and will be removed in v5.13. Please only use one of {STATIC_CACHE_IMPLEMENTATIONS}, "
                     "and the layer structure will be inferred automatically."
                 )
+            # Honor a user-provided `cache_config["max_cache_len"]` (e.g. to reuse a larger cache across
+            # generations), but never below the length this generation needs, otherwise the cache would be too
+            # small and decoding would go out of bounds.
+            cache_config = generation_config.cache_config or {}
+            requested_max_cache_len = cache_config.get("max_cache_len")
+            if requested_max_cache_len is not None and requested_max_cache_len < max_cache_length:
+                logger.warning_once(
+                    f"`cache_config['max_cache_len']` ({requested_max_cache_len}) is smaller than the length this "
+                    f"generation needs ({max_cache_length}); using {max_cache_length} instead."
+                )
+            if requested_max_cache_len is not None:
+                max_cache_length = max(requested_max_cache_len, max_cache_length)
             model_kwargs[cache_name] = self._prepare_static_cache(
                 cache_implementation=generation_config.cache_implementation,
                 batch_size=max(generation_config.num_beams, generation_config.num_return_sequences) * batch_size,

@@ -3969,6 +3969,37 @@ class GenerationIntegrationTests(unittest.TestCase):
         values_1 = results.past_key_values.layers[1].values
         self.assertTrue(keys_1.device == values_1.device == torch.device(1))
 
+    def test_static_cache_honors_cache_config_max_cache_len(self):
+        """`cache_config["max_cache_len"]` must size the static cache, but never below the length the generation
+        needs, otherwise decoding would go out of bounds (#46424)."""
+        model = AutoModelForCausalLM.from_pretrained("hf-internal-testing/tiny-random-LlamaForCausalLM").to(
+            torch_device
+        )
+        input_ids = torch.tensor([[1, 2, 3, 4, 5]]).to(torch_device)
+        needed = input_ids.shape[1] + 8 - 1
+
+        # A larger requested length is honored (e.g. to reuse the cache across generations).
+        model.generate(
+            input_ids,
+            max_new_tokens=8,
+            do_sample=False,
+            cache_implementation="static",
+            cache_config={"max_cache_len": 2048},
+        )
+        self.assertEqual(model._cache.max_cache_len, 2048)
+
+        # A smaller requested length is clamped up to what the generation needs, so decoding stays in bounds.
+        model._cache = None
+        gen = model.generate(
+            input_ids,
+            max_new_tokens=8,
+            do_sample=False,
+            cache_implementation="static",
+            cache_config={"max_cache_len": 2},
+        )
+        self.assertEqual(model._cache.max_cache_len, needed)
+        self.assertEqual(gen.shape[-1], input_ids.shape[1] + 8)
+
     def test_prepare_inputs_for_generation_decoder_llm(self):
         """Tests GenerationMixin.prepare_inputs_for_generation against expected usage with decoder-only llms."""
 
