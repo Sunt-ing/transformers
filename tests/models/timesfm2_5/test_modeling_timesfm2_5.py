@@ -120,6 +120,16 @@ class TimesFm2_5ModelTest(ModelTesterMixin, unittest.TestCase):
         results = model(**inputs_dict)
         assert results.mean_predictions is not None
 
+    def test_run_model_with_window_size(self):
+        # Regression for #46821: the window_size preprocessing branch called a misnamed
+        # moving-average helper and raised AttributeError for any non-None window_size.
+        config, inputs_dict = self.model_tester.prepare_config_and_inputs_for_common()
+        model = TimesFm2_5ModelForPrediction(config)
+        model.to(torch_device)
+        model.eval()
+        results = model(**inputs_dict, window_size=5)
+        assert results.mean_predictions is not None
+
     @unittest.skip(reason="FA backend not yet supported because of forced masks")
     def test_sdpa_can_dispatch_on_flash(self):
         pass
