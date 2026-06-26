@@ -1239,6 +1239,12 @@ class Cache:
             )
 
         for layer, layer_num_heads, layer_head_dim in zip(self.layers, num_heads, head_dim):
+            # Linear attention layers keep conv/recurrent states, not a key/value cache, so the fake key/value
+            # tensor below does not describe their state (it would give them a spurious 0-length axis). They expose
+            # no `is_initialized` flag, so skip them (and any already-initialized layer) and let them initialize
+            # from their real states on the first update; only key/value attention layers are pre-allocated here.
+            if getattr(layer, "is_initialized", None) is not False:
+                continue
             # Note that the initialization needs all dimensions (except -2), as well as device and dtype, so we use
             # this fake tensor approach. It has size 0 on the -2 dimension, so it does not allocate any data (it only
             # creates an empty tensor with correct shape, dtype and device), which is very efficient and practical

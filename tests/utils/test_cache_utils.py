@@ -108,6 +108,26 @@ class CacheTest(unittest.TestCase):
         self.assertTrue(cached_keys.shape == (1, 1, 10, 128))
         self.assertTrue(cached_values.shape == (1, 1, 10, 128))
 
+    def test_early_initialization_hybrid_linear_attention(self):
+        """
+        Tests that `early_initialization` pre-allocates key/value attention layers but leaves linear-attention
+        layers to lazily initialize from real states on the first update, instead of giving them a spurious
+        zero-length conv_states axis that crashes on `update_conv_state` (#46439).
+        """
+        config = LlamaConfig(num_hidden_layers=2, num_attention_heads=4, num_key_value_heads=2, hidden_size=32)
+        config.layer_types = ["full_attention", "linear_attention"]
+        cache = StaticCache(config=config, max_cache_len=8)
+        cache.early_initialization(batch_size=1, num_heads=2, head_dim=8, dtype=torch.float32, device=torch_device)
+
+        attention_layer, linear_layer = cache.layers
+        self.assertTrue(attention_layer.is_initialized)
+        self.assertIsNone(linear_layer.conv_states)
+        self.assertFalse(linear_layer.is_conv_states_initialized)
+
+        # The linear layer initializes from a real conv state on the first update, without crashing.
+        linear_layer.update_conv_state(torch.zeros((1, 8, 4), device=torch_device))
+        self.assertEqual(tuple(linear_layer.conv_states.shape), (1, 8, 4))
+
 
 def _skip_on_failed_cache_prerequisites(test, cache_implementation):
     """Function to skip tests on failed cache prerequisites, given a cache implementation"""
