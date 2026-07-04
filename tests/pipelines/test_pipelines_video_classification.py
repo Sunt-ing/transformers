@@ -122,3 +122,24 @@ class VideoClassificationPipelineTests(unittest.TestCase):
         for output in outputs:
             for element in output:
                 compare_pipeline_output_to_hub_spec(element, VideoClassificationOutputElement)
+
+    @require_torch
+    def test_video_processor_honors_frame_sampling_rate(self):
+        import torch
+
+        small_model = "hf-internal-testing/tiny-random-VideoMAEForVideoClassification"
+        video_classifier = pipeline("video-classification", model=small_model, frame_sampling_rate=4)
+        video_file_path = hf_hub_download(repo_id="nateraw/video-demo", filename="archery.mp4", repo_type="dataset")
+
+        video_processor_inputs = video_classifier.preprocess(video_file_path, num_frames=4, frame_sampling_rate=4)[
+            "pixel_values"
+        ]
+        default_inputs = video_classifier.preprocess(video_file_path, num_frames=4, frame_sampling_rate=1)["pixel_values"]
+
+        video_classifier.video_processor = None
+        image_processor_inputs = video_classifier.preprocess(video_file_path, num_frames=4, frame_sampling_rate=4)[
+            "pixel_values"
+        ]
+
+        self.assertFalse(torch.equal(video_processor_inputs, default_inputs))
+        torch.testing.assert_close(video_processor_inputs, image_processor_inputs)

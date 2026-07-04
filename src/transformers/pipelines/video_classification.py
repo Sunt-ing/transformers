@@ -148,8 +148,9 @@ class VideoClassificationPipeline(Pipeline):
         if num_frames is None:
             num_frames = self.model.config.num_frames
 
-        # Decode the video manually because image processors can't decode or sample frames
-        if self.video_processor is None:
+        needs_manual_sampling = self.video_processor is None or frame_sampling_rate != 1
+        if needs_manual_sampling:
+            # Decode and sample here so non-default `frame_sampling_rate` matches the legacy pipeline indices.
             if video.startswith("http://") or video.startswith("https://"):
                 video = BytesIO(httpx.get(video, follow_redirects=True).content)
 
@@ -159,11 +160,15 @@ class VideoClassificationPipeline(Pipeline):
             indices = np.linspace(start_idx, end_idx, num=num_frames, dtype=np.int64)
 
             video = read_video_pyav(container, indices)
+        if self.video_processor is None:
             video = list(video)
             model_inputs = self.image_processor(video, return_tensors="pt").to(self.dtype)
+        elif needs_manual_sampling:
+            model_inputs = self.video_processor(video, do_sample_frames=False, return_tensors="pt").to(self.dtype)
         else:
-            processing_kwargs = {"num_frames": num_frames, "do_sample_frames": True}
-            model_inputs = self.video_processor(video, **processing_kwargs, return_tensors="pt").to(self.dtype)
+            model_inputs = self.video_processor(
+                video, num_frames=num_frames, do_sample_frames=True, return_tensors="pt"
+            ).to(self.dtype)
         return model_inputs
 
     def _forward(self, model_inputs):
