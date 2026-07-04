@@ -59,6 +59,47 @@ if is_vision_available():
     from PIL import Image
 
 
+@require_torch
+class Qwen3OmniMoeForConditionalGenerationGenerateTest(unittest.TestCase):
+    def test_qwen3_omni_generate_consumes_generation_mode(self):
+        class StopAfterThinkerGenerate(Exception):
+            pass
+
+        class ThinkerStub:
+            def generate(self, input_ids=None, **kwargs):
+                assert "generation_mode" not in kwargs
+                assert kwargs["output_hidden_states"] is True
+                assert kwargs["return_dict_in_generate"] is True
+                raise StopAfterThinkerGenerate
+
+        config = type(
+            "Config",
+            (),
+            {
+                "talker_config": type(
+                    "TalkerConfig",
+                    (),
+                    {
+                        "speaker_id": {"ethan": 1},
+                        "text_config": type("TextConfig", (), {"vocab_size": 2048})(),
+                        "codec_eos_token_id": 0,
+                    },
+                )(),
+            },
+        )()
+        model = Qwen3OmniMoeForConditionalGeneration.__new__(Qwen3OmniMoeForConditionalGeneration)
+        model.config = config
+        model.has_talker = True
+        model.thinker = ThinkerStub()
+
+        with self.assertRaises(StopAfterThinkerGenerate):
+            Qwen3OmniMoeForConditionalGeneration.generate(
+                model,
+                input_ids=torch.tensor([[1, 2, 3]]),
+                generation_mode="audio",
+            )
+
+
 class Qwen3OmniMoeThinkerForConditionalGenerationTester:
     def __init__(
         self,
