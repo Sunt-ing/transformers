@@ -20,6 +20,7 @@ import pytest
 from transformers import (
     AutoProcessor,
     MiniCPMV4_6Config,
+    MiniCPMV4_6ImageProcessor,
     is_torch_available,
 )
 from transformers.models.minicpmv4_6.configuration_minicpmv4_6 import MiniCPMV4_6VisionConfig
@@ -41,6 +42,8 @@ if is_torch_available():
     import torch
 
     from transformers import MiniCPMV4_6ForConditionalGeneration, MiniCPMV4_6Model
+    from transformers.exporters.utils import prepare_for_export
+    from transformers.models.minicpmv4_6.modeling_minicpmv4_6 import MiniCPMV4_6VisionModel
     from transformers.models.qwen3_5.configuration_qwen3_5 import Qwen3_5TextConfig
 
 
@@ -176,6 +179,69 @@ class MiniCPMV4_6ModelTest(VLMModelTest, unittest.TestCase):
             "pixel_values_videos": inputs_dict["pixel_values"],
             "target_sizes_videos": inputs_dict["target_sizes"],
         }
+
+    def test_vision_model_with_mixed_image_sizes(self):
+        processor = MiniCPMV4_6ImageProcessor(
+            patch_size=8,
+            scale_resolution=64,
+            max_slice_nums=1,
+            slice_mode=False,
+            do_resize=True,
+            do_rescale=False,
+            do_normalize=False,
+        )
+        images = [torch.zeros(3, 32, 32), torch.zeros(3, 32, 64)]
+        inputs = processor(images, return_tensors="pt").to(torch_device)
+        self.assertEqual(inputs["target_sizes"].cpu().tolist(), [[8, 8], [4, 12]])
+
+        config = MiniCPMV4_6VisionConfig(
+            hidden_size=16,
+            intermediate_size=32,
+            num_hidden_layers=1,
+            num_attention_heads=4,
+            image_size=64,
+            patch_size=8,
+            num_channels=3,
+            insert_layer_id=0,
+            window_kernel_size=(2, 2),
+        )
+        model = MiniCPMV4_6VisionModel(config).to(torch_device).eval()
+
+        with torch.no_grad():
+            outputs = model(pixel_values=inputs["pixel_values"], target_sizes=inputs["target_sizes"])
+
+        expected_tokens = sum((height // 2) * (width // 2) for height, width in inputs["target_sizes"].cpu().tolist())
+        self.assertEqual(list(outputs.last_hidden_state.shape), [1, expected_tokens, config.hidden_size])
+
+    def test_vision_export_preparer_with_mixed_image_sizes(self):
+        processor = MiniCPMV4_6ImageProcessor(
+            patch_size=8,
+            scale_resolution=64,
+            max_slice_nums=1,
+            slice_mode=False,
+            do_resize=True,
+            do_rescale=False,
+            do_normalize=False,
+        )
+        images = [torch.zeros(3, 32, 32), torch.zeros(3, 32, 64)]
+        inputs = processor(images, return_tensors="pt")
+
+        config = MiniCPMV4_6VisionConfig(
+            hidden_size=16,
+            intermediate_size=32,
+            num_hidden_layers=1,
+            num_attention_heads=4,
+            image_size=64,
+            patch_size=8,
+            num_channels=3,
+            insert_layer_id=0,
+            window_kernel_size=(2, 2),
+        )
+        model = MiniCPMV4_6VisionModel(config).eval()
+        _, inputs, _ = prepare_for_export(model, inputs)
+
+        self.assertNotIn("merged_shape", inputs)
+        self.assertEqual(inputs["merged_shapes"], [(4, 4), (2, 6)])
 
     @unittest.skip(
         "NaViT packing puts all images in a single tensor with dim-0 = 1; "

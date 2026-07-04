@@ -479,7 +479,14 @@ def _prepare_navit_vision_inputs(model: torch.nn.Module, inputs: dict[str, Any])
         inputs["window_index"], inputs["cu_window_seqlens"] = get_vision_window_index(
             grid_thw, spatial_merge_size=1, window_size=window_kernel_size[0], patch_size=1
         )
-        inputs["merged_shape"] = get_vision_merged_shape(target_sizes, window_kernel_size)
+        target_sizes_list = target_sizes.tolist()
+        if all(size == target_sizes_list[0] for size in target_sizes_list):
+            inputs["merged_shape"] = get_vision_merged_shape(target_sizes, window_kernel_size)
+        else:
+            window_h, window_w = window_kernel_size
+            inputs["merged_shapes"] = [
+                (int(height) // window_h, int(width) // window_w) for height, width in target_sizes_list
+            ]
 
 
 @register_export_input_preparer("input_features", "feature_lens")

@@ -375,19 +375,38 @@ class MiniCPMV4_6ViTWindowAttentionMerger(nn.Module):
         hidden_states = hidden_states[:, torch.argsort(window_index), :]
         hidden_states = residual + hidden_states
 
-        # Vectorised window merge: reshape (1, batch*seq_per_img, D) → (batch, seq_per_img, D)
-        # and lift per-image (h, w) from target_sizes[0]. This assumes the input batch was
-        # packed with uniform per-image sizes (the standard NaViT preprocessing output).
         batch_size = target_sizes.shape[0]
         window_h, window_w = self.window_kernel_size
         embed_dim = hidden_states.shape[-1]
-        seq_per_img = hidden_states.shape[1] // batch_size
-        patch = hidden_states.view(batch_size, seq_per_img, embed_dim)
-        merged_h, merged_w = get_vision_merged_shape(target_sizes, self.window_kernel_size, kwargs=kwargs)
+        merged_shapes = kwargs.pop("merged_shapes", None)
+        has_merged_shape = kwargs.get("merged_shape") is not None
+        if has_merged_shape or (merged_shapes is None and bool((target_sizes == target_sizes[0]).all())):
+            seq_per_img = hidden_states.shape[1] // batch_size
+            patch = hidden_states.view(batch_size, seq_per_img, embed_dim)
+            merged_h, merged_w = get_vision_merged_shape(target_sizes, self.window_kernel_size, kwargs=kwargs)
 
-        patch_5d = patch.view(batch_size, merged_h, window_h, merged_w, window_w, embed_dim).permute(0, 1, 3, 2, 4, 5)
-        flat = patch_5d.reshape(batch_size * merged_h * merged_w, window_h * window_w * embed_dim)
-        residual = patch_5d.reshape(batch_size * merged_h * merged_w, window_h * window_w, embed_dim).mean(dim=1)
+            patch_5d = patch.view(batch_size, merged_h, window_h, merged_w, window_w, embed_dim).permute(
+                0, 1, 3, 2, 4, 5
+            )
+            flat = patch_5d.reshape(batch_size * merged_h * merged_w, window_h * window_w * embed_dim)
+            residual = patch_5d.reshape(batch_size * merged_h * merged_w, window_h * window_w, embed_dim).mean(dim=1)
+        else:
+            if merged_shapes is None:
+                merged_shapes = [
+                    (int(height) // window_h, int(width) // window_w) for height, width in target_sizes.tolist()
+                ]
+            token_counts = [merged_h * window_h * merged_w * window_w for merged_h, merged_w in merged_shapes]
+            patches = hidden_states.squeeze(0).split(token_counts, dim=0)
+            flat_parts = []
+            residual_parts = []
+            for patch, (merged_h, merged_w) in zip(patches, merged_shapes):
+                patch_5d = patch.view(merged_h, window_h, merged_w, window_w, embed_dim).permute(0, 2, 1, 3, 4)
+                flat_parts.append(patch_5d.reshape(merged_h * merged_w, window_h * window_w * embed_dim))
+                residual_parts.append(
+                    patch_5d.reshape(merged_h * merged_w, window_h * window_w, embed_dim).mean(dim=1)
+                )
+            flat = torch.cat(flat_parts, dim=0)
+            residual = torch.cat(residual_parts, dim=0)
 
         hidden_state = self.pre_norm(flat)
         hidden_state = self.linear_1(hidden_state)
@@ -615,7 +634,7 @@ class MiniCPMV4_6Model(MiniCPMV4_6PreTrainedModel):
             When set to `"4x"` the intermediate `vit_merger` is skipped so that each image keeps
             `4×` more visual tokens. Default `"16x"` mode applies the full merge pipeline.
         """
-        downsample_mode = downsample_mode if downsample_mode else self.config.downsample_mode
+        downsample_mode = downsample_mode or self.config.downsample_mode
         use_vit_merger = downsample_mode != "4x"
         pixel_values = pixel_values.to(dtype=self.vision_tower.dtype)
 
