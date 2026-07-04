@@ -111,6 +111,15 @@ class Gemma3ProcessorTest(ProcessorTesterMixin, unittest.TestCase):
             out_batch_oneimage[self.images_input_name].tolist(), out_multiimages[self.images_input_name].tolist()
         )
 
+    def test_image_only_input_creates_prompt(self):
+        processor = self.get_processor()
+        image = self.prepare_image_inputs(batch_size=1)
+
+        inputs = processor(images=image, return_tensors="pt")
+
+        self.assertIn(self.images_input_name, inputs)
+        self.assertEqual(inputs[self.text_input_name].shape[0], 1)
+
     def test_pan_and_scan(self):
         processor_components = self.prepare_components()
         processor_kwargs = self.prepare_processor_dict()

@@ -52,3 +52,21 @@ class Gemma3nProcessorTest(ProcessorTesterMixin, unittest.TestCase):
 
         for key in input_feat_extract:
             self.assertAlmostEqual(input_feat_extract[key].sum(), input_processor[key].sum(), delta=1e-2)
+
+    def test_image_only_input_creates_prompt(self):
+        processor = self.get_processor()
+        image = self.prepare_image_inputs(batch_size=1)[0]
+
+        inputs = processor(images=image, return_tensors="pt")
+
+        self.assertIn("pixel_values", inputs)
+        self.assertEqual(inputs["input_ids"].shape[0], 1)
+
+    def test_audio_only_input_creates_prompt(self):
+        processor = self.get_processor()
+
+        inputs = processor(audio=[0.0] * 1000, return_tensors="pt", sampling_rate=16_000)
+
+        self.assertIn("input_features", inputs)
+        self.assertEqual(inputs["input_ids"].shape[0], 1)
+        self.assertEqual(inputs["input_features"].shape[0], 1)

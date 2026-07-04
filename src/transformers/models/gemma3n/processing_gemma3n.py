@@ -87,14 +87,15 @@ class Gemma3nProcessor(ProcessorMixin):
 
         if isinstance(text, str):
             text = [text]
-        elif not isinstance(text, list) and not isinstance(text[0], str):
+        elif text is not None and not isinstance(text, list) and not isinstance(text[0], str):
             raise TypeError("Invalid input text. Please provide a string, or a list of strings")
 
         if audio is not None:
             audio_inputs = self.feature_extractor(audio, **output_kwargs["audio_kwargs"])
 
             if not text:
-                text = [self.audio_token for _ in audio]
+                batch_size = len(audio_inputs["input_features"])
+                text = [self.audio_token] * batch_size
 
             # Expand placeholder audio tokens to the full audio token sequence
             text = [prompt.replace(self.audio_token, self.full_audio_sequence) for prompt in text]

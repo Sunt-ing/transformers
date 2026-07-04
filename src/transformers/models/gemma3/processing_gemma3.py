@@ -83,7 +83,7 @@ class Gemma3Processor(ProcessorMixin):
 
         if isinstance(text, str):
             text = [text]
-        elif not isinstance(text, list) and not isinstance(text[0], str):
+        elif text is not None and not isinstance(text, list) and not isinstance(text[0], str):
             raise TypeError("Invalid input text. Please provide a string, or a list of strings")
 
         image_inputs = {}
