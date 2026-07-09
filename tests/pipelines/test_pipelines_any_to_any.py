@@ -17,7 +17,12 @@ import unittest
 
 import numpy as np
 
-from transformers import MODEL_FOR_MULTIMODAL_LM_MAPPING, is_vision_available
+from transformers import (
+    MODEL_FOR_MULTIMODAL_LM_MAPPING,
+    AutoProcessor,
+    is_torch_available,
+    is_vision_available,
+)
 from transformers.pipelines import AnyToAnyPipeline, pipeline
 from transformers.testing_utils import (
     Expectations,
@@ -37,6 +42,9 @@ from utils.fetch_hub_objects_for_ci import url_to_local_path
 
 if is_vision_available():
     import PIL
+
+if is_torch_available():
+    from transformers import Qwen2_5OmniForConditionalGeneration
 
 
 @is_pipeline_test
@@ -111,6 +119,33 @@ class AnyToAnyPipelineTests(unittest.TestCase):
         pipe = AnyToAnyPipeline(model=model, processor=processor, dtype=dtype, max_new_tokens=10)
 
         return pipe, examples
+
+    def test_qwen2_5_omni_text_batch_keeps_all_rows(self):
+        processor = AutoProcessor.from_pretrained(
+            "hf-internal-testing/tiny-random-Qwen2_5OmniForConditionalGeneration"
+        )
+        model = Qwen2_5OmniForConditionalGeneration.from_pretrained(
+            "hf-internal-testing/tiny-random-Qwen2_5OmniForConditionalGeneration"
+        ).eval()
+        pipe = AnyToAnyPipeline(model=model, processor=processor)
+
+        outputs = pipe(
+            text=["hello", "world"],
+            return_full_text=False,
+            generate_kwargs={
+                "generation_mode": "text",
+                "thinker_do_sample": False,
+                "thinker_max_new_tokens": 1,
+            },
+        )
+
+        self.assertEqual(
+            outputs,
+            [
+                {"input_text": "hello", "generated_text": ANY(str)},
+                {"input_text": "world", "generated_text": ANY(str)},
+            ],
+        )
 
     def run_pipeline_test(self, pipe, examples):
         # Single
