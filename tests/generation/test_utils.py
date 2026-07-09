@@ -4000,6 +4000,25 @@ class GenerationIntegrationTests(unittest.TestCase):
         self.assertTrue(test_bos_id == gen_output[0, 0])
         self.assertTrue(generation_config.bos_token_id is None)
 
+    @pytest.mark.generate
+    def test_prompt_lookup_decoding_respects_max_length(self):
+        # `end_idx` indexes into `input_ids`, while `max_length` bounds the output length, so the candidate cap
+        # must be offset by the current length; otherwise PLD proposes tokens that push generation past `max_length`.
+
+        # The opening bigram is repeated at the end, so the trailing ngram matches early and yields a long continuation.
+        input_ids = torch.tensor([[10, 11, 12, 13, 14, 15, 16, 17, 10, 11]], device=torch_device)
+
+        # Only `max_length - cur_len - 1` (= 2) tokens of budget remain, although `num_output_tokens` asks for 5.
+        candidate_generator = PromptLookupCandidateGenerator(
+            eos_token_id=torch.tensor([0], device=torch_device),
+            num_output_tokens=5,
+            max_matching_ngram_size=2,
+            max_length=input_ids.shape[-1] + 3,
+        )
+        candidates = candidate_generator.get_candidates(input_ids)[0]
+        num_proposed = candidates.shape[-1] - input_ids.shape[-1]
+        self.assertLessEqual(num_proposed, candidate_generator.max_length - input_ids.shape[-1] - 1)
+
     def test_prompt_lookup_decoding_no_eos_token(self):
         # Same setup as test_prompt_lookup_decoding_stops_at_eos, but with no EOS in effect
         # (eos_token_id=None, e.g. open-ended generation). The EOS-cropping branch must be skipped
